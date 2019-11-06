@@ -3,13 +3,13 @@ title: "Modeles mixtes - guidelines"
 author: "Laurent Cauquil & Sylvie Combes"
 date: "2019"
 output: 
+  pdf_document:
+    toc: yes
   html_document: 
     toc: TRUE
     toc_float: TRUE
     theme: simplex
     keep_md: yes
-  pdf_document:
-    toc: yes
 ---
 
 ```{r setup, include = FALSE}
@@ -32,7 +32,7 @@ Merci à Christel Robert-Granié et Bertrand Servin pour leur aide et conseil.
  - `library(multcomp)`  
  
 #### Visualisation des tables:  
- - `library(DT)`  
+ - `library(flextable)`  
  
 #### Jeu de donnée data(Orthodont):  
  - `library(nlme)`  
@@ -48,7 +48,7 @@ suppressWarnings(suppressPackageStartupMessages(library(lmerTest)))  ## lsmeansL
 suppressWarnings(suppressPackageStartupMessages(library(emmeans)))  ## lsmeans()
 suppressWarnings(suppressPackageStartupMessages(library(car)))
 suppressWarnings(suppressPackageStartupMessages(library(multcomp)))
-suppressWarnings(suppressPackageStartupMessages(library(DT)))
+suppressWarnings(suppressPackageStartupMessages(library(flextable)))
 suppressWarnings(suppressPackageStartupMessages(library(ggplot2)))
 ```
 
@@ -93,7 +93,7 @@ This data frame contains the following columns:
 ### Présentation des données
 
 ```{r}
-datatable(Orthodont)
+flextable(head(Orthodont, 15))
 ```
 
 Résumé des données 
@@ -524,6 +524,6 @@ report_lme <- function(lme_result){
 ```{r}
 report_pval_lme <- round(report_lme(lme_result),5)
 #knitr::kable(report_pval_lme)
-datatable(report_pval_lme)
+flextable(data.frame(report_pval_lme))
 ```
 
