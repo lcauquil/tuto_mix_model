@@ -1,0 +1,529 @@
+---
+title: "Modeles mixtes - guidelines"
+author: "Laurent Cauquil & Sylvie Combes"
+date: "2019"
+output: 
+  html_document: 
+    toc: TRUE
+    toc_float: TRUE
+    theme: simplex
+    keep_md: yes
+  pdf_document:
+    toc: yes
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Merci à Christel Robert-Granié et Bertrand Servin pour leur aide et conseil.
+
+## Packages requis
+
+#### Ecriture des modèles:  
+ - `library(lme4)`  
+ - `library(lmerTest)`
+ 
+#### Affichage des tables d'ANOVA:  
+ - `library(car)`    
+ 
+#### Tests Post-Hoc:  
+ - `library(emmeans)`  
+ - `library(multcomp)`  
+ 
+#### Visualisation des tables:  
+ - `library(DT)`  
+ 
+#### Jeu de donnée data(Orthodont):  
+ - `library(nlme)`  
+  
+#### Production des graphiques:  
+ - `library(ggplot2)`  
+
+```{r, packages required, warning = FALSE, include = FALSE}
+## package analyse stat
+suppressWarnings(suppressPackageStartupMessages(library(nlme)))
+suppressWarnings(suppressPackageStartupMessages(library(lme4)))  ## lmer()
+suppressWarnings(suppressPackageStartupMessages(library(lmerTest)))  ## lsmeansLT()
+suppressWarnings(suppressPackageStartupMessages(library(emmeans)))  ## lsmeans()
+suppressWarnings(suppressPackageStartupMessages(library(car)))
+suppressWarnings(suppressPackageStartupMessages(library(multcomp)))
+suppressWarnings(suppressPackageStartupMessages(library(DT)))
+suppressWarnings(suppressPackageStartupMessages(library(ggplot2)))
+```
+
+```{r eval = FALSE, echo = FALSE}
+## fonction de mise en forme en data.frame
+source(file = "script/report_lme.R")
+```
+
+>
+Avant de réaliser les analyses, il est conseillé de changer les options par défaut du `contrast`  
+>
+
+```{r}
+## Par défaut: options(contrasts = c("contr.treatment", "contr.poly"))
+options(contrasts = c("contr.sum", "contr.poly"))
+```
+
+http://rcompanion.org/rcompanion/d_04.html  
+http://goanna.cs.rmit.edu.au/~fscholer/anova.php  
+http://md.psych.bio.uni-goettingen.de/mv/unit/lm_cat/lm_cat_unbal_ss_explained.html  
+http://r.789695.n4.nabble.com/Setting-contrasts-td4681529.html  
+http://www.clayford.net/statistics/tag/sum-contrasts/  
+
+
+## Dataset
+
+Caractéristiques du jeu de données:
+
+```{r, eval = F}
+?Orthodont
+```
+
+>
+The Orthodont data frame has 108 rows and 4 columns of the change in an orthodontic measurement over time for several young subjects.
+This data frame contains the following columns:
+ - distance: a numeric vector of distances from the pituitary to the pterygomaxillary fissure (mm). These distances are measured on x-ray images of the skull.  
+ - age: a numeric vector of ages of the subject (year).  
+ - Subject: an ordered factor indicating the subject on which the measurement was made. The levels are labelled M01 to M16 for the males and F01 to F13 for the females. The ordering is by increasing average distance within sex.  
+ - Sex: a factor with levels Male and Female
+>
+
+### Présentation des données
+
+```{r}
+datatable(Orthodont)
+```
+
+Résumé des données 
+
+```{r}
+summary(Orthodont)
+```
+
+Structure de l'objet tranformé en data.frame
+
+```{r}
+str(as.data.frame(Orthodont))
+```
+
+Ajoute la variable `AGE` correspondant à la variable `age` transformée en facteur
+
+```{r}
+Orthodont$AGE <- as.factor(Orthodont$age)
+```
+
+```{r}
+summary(Orthodont)
+```
+
+On note un déséquilibre des effectifs : 64 males, 44 femelles, pas de données manquantes  
+
+<Br>
+<Br>
+
+### Représentation graphique avec `ggplot2`
+
+```{r, warning = F}
+p <- ggplot(data = Orthodont, aes(x = AGE, y = distance, group = Subject))
+p + geom_line(aes(color = Subject)) +
+    geom_jitter(width = 0.1, size = 2) +
+    facet_grid(~Sex) +
+    geom_smooth(method='lm',aes(group=Sex))  +
+  labs(title = "Evolution par individu",
+         subtitle = "distance ~ AGE by Sex") +
+    theme(legend.position = 'none')
+```
+  
+Les graphiques montrent une forte variabilité liée à l'individu et vraissemblablement à:   
+  1- un effet AGE  
+  2- un effet Sexe  
+  3- une interaction AGE * Sexe : les pentes des males semblent plus fortes mais ce n'est pas flagrant
+
+On note le déséquilibre des effectifs : 16 males, 11 femelles, pas de données manquantes  
+
+## Modele ANOVA 
+
+### Avec la fonction `lm()` simple
+
+Les pré-requis pour la réalisation d'une ANOVA sont :  
+
+- un dispositif équilibré en effectif
+- homoscedasticité : les variances entre groupes sont égales
+- une distribution normale des résidus (en lien avec la distribution de la variable)
+- **indépendance des observations**  
+
+A priori, ce modèle n'est pas adapté pour l'analyse du jeu de donnees `Orthodont` car les effectifs sont déséquilibrés  et il n'y a pas indépendance des observations : la variable est mesurée plusieurs fois sur le même individu.
+
+Dans un modèle linéaire la variable liée à l'âge peut être implémentée comme un facteur (variable qualitative non ordonnée) ou traitée en variable continue. En considérant l'âge comme variable qualitative, le test de l'interaction AGE * Sex  "coûte cher" (3 degrés de libertés) vs. dans le cas de l'âge en variable continue (1 ddl). 
+
+**Cas de l'âge en variable qualitative avec les fonction `Anova` et `anova`**
+
+```{r}
+mod_lm <- lm(distance ~ AGE * Sex , data = Orthodont)
+car::Anova(mod_lm, type="III")
+anova(mod_lm) # type "II" par défaut mais ne doit être utilisé que si les effectifs sont équilibrés
+```
+  
+Les résultats diffèrent selon la fonction utilisée. Le type d'erreur testé n'est pas le même :  
+  
+- `car::Anova(mod_lm, type="III")`, type III demandé  
+- `anova`, type II par défaut
+  
+
+**Cas de l'âge en variable continue**
+
+```{r}
+mod_lm <- lm(distance ~ age * Sex , data = Orthodont)
+car::Anova(mod_lm, type="III")
+anova(mod_lm)
+```
+  
+Lorsque l'âge est pris comme une variable continue, les résultats obtenus sont diffèrent.  
+En effet, avec `car::Anova(mod_lm ,type III)`, il n'y a pas d'effet Sex !
+
+>
+**RAPPELONS** dans ce cas quel que soit la forme de la variable `age` le modèle `lm()` ne doit pas etre utilisé. Il faut tenir compte de la répétition !
+> 
+
+### Réalisation d'une ANOVA avec données répétées  
+  
+On peut utiliser la fonction `aov()` mais celle-ci:
+
+- n'est pas adaptée en cas de données manquantes ou de déséquilibre des effectifs  
+- et surtout ne permet pas d'obtenir les tests post-Hoc  
+
+```{r}
+mod_aov_rep<-aov(distance ~ AGE * Sex + Error(Subject), data = Orthodont)
+summary(aov(distance ~ AGE * Sex + Error(Subject), data = Orthodont), type = "III") 
+```
+  
+Dans ce modèle la variance est décomposée en deux parties l'une pour l'effet aléatoire individu et l'autre pour la résiduelle.  
+Ce modèle est identique au modele mixte pour peu que l'on respecte les conditions d'utilisation de l'ANOVA et notamment des effectifs equilibrés.
+
+## Modèle mixte
+
+ - variable réponse = **`distance`**
+ - variable explicatives à effets fixe = **`Sex, AGE`**
+ - Variable explicative à effet aléatoire = **`Subject`**
+  
+### Les packages et les fonctions :  
+
+Les packages:  
+
+ - `library(lme4)`
+ - `library(lmerTest)`
+ 
+Les fonctions:
+   
+ - `lmer()`
+ - `update()`
+ - `VarCorr()`
+ - `AIC()`
+ - `BIC()`
+ 
+### Les méthodes REML et ML d'estimation
+
+Il existe 2 méthodes d'ajustement d'un modèle mixte, la méthode REML et la méthode ML.  
+<br/>
+REML est une méthode de vraissemblance restreinte. Elle est particulièrement adaptée aux jeux de données présentant des données manquantes. Elle permet également d'étudier au mieux les effets aléatoires.  
+
+Par contre lorsqu'on s'intéresse aux effets fixes, la méthode "ML" (Maximum Likehood) est recommandée.  
+Toutefois cette dernière conduit à des estimations biaisées (trop faibles) des composantes de la variance.  
+La démarche préconisée est la suivante :  
+
+- estimer le modèle avec la methode REML
+- une fois le modèle estimé, ajuster avec la methode ML en utilisant la fonction `update()` 
+
+La fonction `lmer()` utilise par défaut la methode REML. Cette fonction est implementée dans les packages `lme4` et `lmerTest`.
+
+- `lme4::lmer` ne donne pas accès aux p-values.   
+- `lmerTest::lmer` donne accès aux p-values.    
+
+>  
+**--> Utiliser la fonction `lmer()` du package `lmerTest` pour avoir accès aux p-Values et implémenter d'abord la méthode REML puis ajuster avec la méthode ML** 
+>
+
+### Ecriture du modèle avec la fonction `lmerTest::lmer`, la méthode REML et l'ajustement avec ML  
+
+Ecriture du modèle avec REML puis ML pour corriger l'effet individu sur l'intercept  
+
+```{r}
+# estimation du modèle
+mod_lmer_REML <- lmerTest::lmer(distance ~ Sex * AGE + (1|Subject), data = Orthodont) # par défaut méthode REML
+# ajustement pour l'estimation des effets fixes
+mod_lmer_ML <- update(mod_lmer_REML, REML=FALSE)
+```
+
+Validation du gain lié à la réestimation du modèle par la méthode ML
+
+```{r, collapse = TRUE}
+lme4::VarCorr(mod_lmer_REML)
+```
+
+```{r, collapse = TRUE}
+lme4::VarCorr(mod_lmer_ML)
+```
+  
+La fonction `Varcorr()` permet d'extraire la variance des composantes. La réestimation du modèle avec la méthode ML permet ainsi de diminuer la variance de la résiduelle et de l'effet aléatoire.  
+
+```{r, collapse = TRUE}
+car::Anova(mod_lmer_ML, type = "III")
+```
+
+## Comment évaluer la qualité d'ajustement d'un modèle ?
+  
+### Les modèles emboités pour valider les effets  
+   
+**Test de l'intérêt de l'addition d'un effet aléatoire sur l'intercept**  
+  
+Il s'agit de comparer le modèle mixte et le modèle ANOVA
+
+```{r}
+# modele mixte avec effets fixes et subject en aléatoire sur l'intercept
+# estimation du modèle
+mod_lmer_REML <- lmerTest::lmer(distance ~ Sex * AGE + (1|Subject), data = Orthodont) # par défaut methode REML
+# ajustement pour l'estimation des effets fixes
+mod_lmer_ML <- update(mod_lmer_REML, REML=FALSE)
+# Anova
+mod_lm <- lm(distance ~ Sex * AGE , data = Orthodont)
+```
+
+Comparaison (plus la valeur est basse, meilleur est l'ajustement)
+
+```{r, collapse = TRUE}
+anova(mod_lmer_ML, mod_lm)
+```
+
+L'effet aléatoire apporte une plus-value significative dans le modèle d'estimation
+
+**Test de l'intérêt de l'effet fixe par rapport à l'aléatoire seul**
+
+```{r}
+# modèle avec l'effet aleatoire seul
+mod_lmer_REML_ssfixe <- lmerTest::lmer(distance ~ 1 + (1|Subject), data = Orthodont) 
+mod_lmer_ML_ssfixe <- update(mod_lmer_REML_ssfixe, REML = FALSE) 
+
+# modèle mixte avec effets fixes et subject en aléatoire sur l'intercept
+mod_lmer_REML_intercept <- lmerTest::lmer(distance ~ AGE * Sex + (1|Subject), data = Orthodont)
+mod_lmer_ML_intercept<-update(mod_lmer_REML_intercept, REML = FALSE)
+```
+
+Comparaison  (plus la valeur est basse, meilleur est l'ajustement)
+
+```{r, collapse = TRUE}
+anova(mod_lmer_ML_ssfixe, mod_lmer_ML_intercept)
+```
+  
+Les effets fixes améliorent l'ajustement du modèle  
+  
+**Modèle pour corriger l'intercept et la pente**
+
+```{r}
+# modèle intercept
+mod_lmer_REML_intercept <- lmerTest::lmer(distance ~ Sex * AGE + (1|Subject), data = Orthodont)
+mod_lmer_ML_intercept <- update(mod_lmer_REML_intercept, REML = FALSE)
+
+# modèle intercept + pente
+mod_lmer_REML_intercept_pente <- lmerTest::lmer(distance ~ Sex * AGE + (age|Subject), data = Orthodont)
+mod_lmer_ML_intercept_pente <- update(mod_lmer_REML_intercept_pente, REML = FALSE)
+```
+
+Comparaison (plus la valeur est basse, meilleur est l'ajustement)
+
+```{r, collapse = TRUE}
+anova(mod_lmer_ML_intercept, mod_lmer_ML_intercept_pente)
+```
+
+La correction par la pente ne permet pas un meilleur ajustement du modèle, toutefois ici la correction par la pente est faite par l'age sous forme d'une variable continue.  
+  
+NB: l'écriture de ces deux modèles est équivalente :  
+`lmerTest::lmer(distance ~ Sex * AGE + (1 + age|Subject), data = Orthodont)`  
+`lmerTest::lmer(distance ~ Sex * AGE + (age|Subject), data = Orthodont)`  
+
+### Comparaison des modèles par les criteres AIC et BIC
+
+AIC : critère d'Akaike (Akaike Information Criterion)  
+BIC : Bayesian Information Criterion
+
+```{r}
+criterLM <- c(AIC = AIC(mod_lm), BIC = BIC(mod_lm))
+criterLMER_ssfixe <- c(AIC = AIC(mod_lmer_ML_ssfixe), BIC = BIC(mod_lmer_ML_ssfixe))
+criterLMER_intercept <- c(AIC = AIC(mod_lmer_ML_intercept), BIC = BIC(mod_lmer_ML_intercept))
+criterLMER_intercept_pente <- c(AIC = AIC(mod_lmer_ML_intercept_pente), BIC = BIC(mod_lmer_ML_intercept_pente))
+rbind(criterLM, criterLMER_ssfixe, criterLMER_intercept, criterLMER_intercept_pente)
+```
+
+Plus la valeur est basse, meilleur est l'ajustement. Ici, le modèle permettant le meilleur ajustement est le modèle `mod_lmer_ML_intercept`
+
+
+### Résumé des écritures de différents modèles
+
+Modèle sans effet fixe et subject en aléatoire sur l'intercept
+`lmerTest::lmer(distance ~ 1 + (1|Subject), data = Orthodont)`
+
+Modèle sans effet fixe et AGE en aléatoire sur la pente (deux écritures possibles pour ne garder que l'effet aléatoire AGE sur la pente)
+`lmerTest::lmer(distance ~ 1 + (0 + AGE|Subject), data = Orthodont)`
+`lmerTest::lmer(distance ~ 1 + (AGE - 1|Subject), data = Orthodont)`
+
+Modèle sans effet fixe et  subject en aléatoire sur l'intercept et AGE en aleatoire sur la pente
+`lmerTest::lmer(distance ~ 1 + (AGE|Subject), data = Orthodont)`  
+
+Modèle avec effet fixe et le sujet en aléatoire sur l'intercept  
+`lmerTest::lmer(distance ~ AGE * Sex + (1|Subject), data = Orthodont)`  
+
+Modèle avec effet fixe et le sujet sur l'intercept et l'AGE sur la pente en aléatoire  
+`lmerTest::lmer(distance ~ AGE * Sex (AGE|Subject), data = Orthodont)`  
+
+Modèle avec effet fixe sans intercept, mais uniquement la pente en aléatoire  
+`lmerTest::lmer(distance ~ AGE * Sex + (0 + AGE|Subject), data = Orthodont)`  
+
+Modèle avec effet fixe et intercept et pente en aléatoire et non correlée  
+`lmerTest::lmer(distance ~ Sex * AGE + (age||Subject), data = Orthodont)`  
+
+Modèle avec effet fixe et effet aléatoire subject avec sex niche dans subject
+`lmerTest::lmer(distance ~ Sex + AGE + (1|Subject:Sex), data = Orthodont)`
+`lmerTest::lmer(distance ~ Sex + AGE + (1|Subject) + (1|Subject:Sex), data = Orthodont)`
+`lmerTest::lmer(distance ~ Sex + AGE + (1|Subject/Sex), data = Orthodont)`
+`lmerTest::lmer(distance ~ Sex + AGE + (1|Sex/Subject), data = Orthodont)`  
+
+NB: on peut additionner différents effets aléatoires  
+`lmer(Y ~ 1 + (1 | A) + (1 | B), data = d)`
+`lmer(Y ~ 1 + (1 | A) + (1 | A:B), data = d)`
+`lmer(Y ~ 1 + (1 | A/B), data = d)`
+
+## Calcul des moyennes ajustées : Lsmeans
+
+Les **moyennes ajustéees** ou Lsmeans, permettent d'illustrer l'effet d'une variable en particulier sur la variable réponse. L'effet des autres variables sur la variable dépendante étant fixe.  
+  
+les packages:  
+- `library(emmeans)`  
+- `library(lmerTest)`  
+  
+Les fonctions:  
+- `emmeans::lsmeans()`  
+- `lmerTest::lsmeansLT()`  
+- `CLD()`  
+- `pairs()`  
+
+
+ATTENTION: La fonction `lsmeans()` est présente dans le package `emmeans`, le package `lsmeans` n'est plus disponible. Dans le package `lmerTest`, elle a été renomée en `lsmeansLT`
+  
+Différentes fonctions de différents packages ont été testées et ne donnent pas exactement les mêmes résultats. `emmeans::lsmeans` est plus souple d'utilisation et permet de tester les intéractions.  
+
+C'est donc celle-ci qui est préconisée.
+
+```{r, collapse = TRUE}
+mod_lmer_REML <- lmerTest::lmer(distance ~ AGE * Sex + (1|Subject), data = Orthodont)
+mod_lmer_ML <- update(mod_lmer_REML, REML=FALSE)
+car::Anova(mod_lmer_ML, type= "III")
+```
+
+```{r, collapse = TRUE}
+emmeans::lsmeans(mod_lmer_ML, "AGE")
+```
+
+```{r, collapse = TRUE}
+lmerTest::lsmeansLT(mod_lmer_ML, "AGE")
+```
+
+### Tests Post-Hoc
+  
+Les fonctions `pairs()` et `CLD()` sont utilisées pour réaliser les tests de comparaisons de moyennes.  
+La fonction `CLD()` permet de récupérer les lettres différentes au seuil de 0.05.  
+  
+#### Tests Post-Hoc sur un effet fixe si pas d'intéraction
+
+>
+Attention: la fonction `CLD()` n'est pas applicable à un objet de classe glht issu du packge `multcomp`
+>
+
+```{r, eval = T}
+# avec le package emmeans
+pairs(emmeans::lsmeans(mod_lmer_ML,"AGE"))
+CLD(emmeans::lsmeans(mod_lmer_ML,"AGE"), Letters = letters)
+
+# avec le package lmerTest
+# la fonction cld() ne fonctionne pas sur un objet lmerTest
+lmerTest::difflsmeans(mod_lmer_ML, test.effs = "AGE")
+lmerTest::lsmeansLT(mod_lmer_ML, test.effs = "AGE")
+```
+
+#### Tests Post-Hoc des effets fixes en intéraction 
+
+```{r,eval = T}
+# test de l'effet age intra sexe
+CLD(emmeans::lsmeans(mod_lmer_ML,pairwise ~ AGE|Sex),Letters = letters)
+
+# test tous les niveaux de l'interaction
+CLD(emmeans::lsmeans(mod_lmer_ML,pairwise ~ AGE * Sex),Letters = letters)
+
+# la fonction CLD() ne fonctionne pas sur un objet lmerTest
+lmerTest::lsmeansLT(mod_lmer_ML, test.effs = "AGE:Sex")
+```
+
+> **ATTENTION  Disparition de CLD (Compact letter displays)**  
+Explication de l'auteur:  
+Another way to depict comparisons is by compact letter displays, whereby two EMMs sharing one or more grouping symbols are not “significantly” different. These may be generated by the CLD() function (or equivalently by multcomp::cld()).  
+I really recommend against this kind of display, though, and decline to illustrate it. CLD displays promote visually the idea that two means that are “not significantly different” are to be judged as being equal; and that is a very wrong interpretation. In addition, they draw an artificial “bright line” between P values on either side of alpha, even ones that are very close.
+In response to ever stronger recommendations from professional societies against the use of “significance” criteria and language, the CLD() function is now being deprecated and will be removed entirely from emmeans at a future date.  
+Cf.  https://cran.r-project.org/web/packages/emmeans/vignettes/comparisons.html#CLD
+>
+
+## Boucle pour modèle mixte et fonction report_lme()
+
+La fonction `report_lme()` permet à partir d'un objet de type `list` comprenant les résultats d'un modèle appliqué à plusieurs variables d'afficher:
+
+- les p-values des effets fixes
+- la valeur W du test de Shapiro et la P valeur associée  
+
+L'hypothèse de non normalité des résidus peut être rejetée si la p-Value est non significative (> 0.05)
+
+### Application du modèle avec 3 variables quantitatives du data.frame
+
+```{r}
+# creation de 2 variables supplémentaires pour utiliser lmer() dans une boucle
+nb_carie<-abs(floor(rnorm(n = 108, mean =4, sd=3)))
+taille_machoire<-abs(floor(rnorm(n = 108, mean =7, sd=2)))
+
+df<-data.frame("nb_carie"=nb_carie,"taille_machoire"=taille_machoire, Orthodont)
+lme_result<-list() 
+
+# application du modèle avec les 3 premières variables du data.frame
+for (i in 1:3) 
+{
+	newvar<-(df)[,i]
+	lme_result$names[[i]] <- colnames(df)[i]
+	mod_REML<-lmerTest::lmer(newvar ~ Sex * AGE + (1|Subject), data = df)
+  lme_result$shap[[i]] <- shapiro.test(summary(update(mod_REML, REML = FALSE))$residuals)
+  lme_result$pval[[i]]<-Anova(update(mod_REML, REML = FALSE), type="III")  
+} 
+```
+
+### Fonction de récupération des résultats
+
+```{r}
+report_lme <- function(lme_result){
+    list_model <- attributes(lme_result$pval[[1]])$row.names
+    tmp <- matrix(0, ncol=length(list_model)+2, nrow=length(lme_result$names) ,dimnames=list(lme_result$names, c(paste(list_model[(seq(list_model))], "(p-val)"),"W", "p-val (W)")))
+    for(i in seq(length(lme_result$pval))){
+        for (j in seq(length(list_model))){
+            tmp[i,j] <- lme_result$pval[[i]][[3]][j] 
+        }
+         tmp[i,j+1] <- lme_result$shap[[i]]$statistic
+         tmp[i,j+2] <- lme_result$shap[[i]]$p.value
+    }
+    return(tmp)
+    assign(paste0(lme_result,"report_lme"),as.data.frame(tmp), envir = parent.frame())#.GlobalEnv)
+}
+```
+
+### Récupération des résultats et affichage
+
+```{r}
+report_pval_lme <- round(report_lme(lme_result),5)
+#knitr::kable(report_pval_lme)
+datatable(report_pval_lme)
+```
+

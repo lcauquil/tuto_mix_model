@@ -1,1 +1,1 @@
-# tuto_mix_model
+# Guidelines pour modèles mixtes
